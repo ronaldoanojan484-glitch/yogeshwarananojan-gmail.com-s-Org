@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #070605;
+  --surface: #12100d;
+  --surface-2: #1b1712;
+  --gold: #d4ad5d;
+  --gold-light: #f7e4b2;
+  --gold-glow: rgba(212, 173, 93, 0.3);
+  --border: #382c18;
+  --border-light: #6e552d;
+  --text: #f7f2e7;
+  --muted: #a39886;
+  --ok: #34d399;
+  --danger: #f87171;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: radial-gradient(ellipse at 50% -10%, #35240e 0%, #120e09 45%, var(--bg) 85%);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+select {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+.font-royal {
+  font-family: 'Cinzel', Georgia, serif;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+.gold-gradient-bg {
+  background: linear-gradient(135deg, #fcebc2 0%, #d4ad5d 50%, #8c6828 100%);
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #fcebc2 0%, #d4ad5d 50%, #8c6828 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 3D Floating Book Showcase */
+.book-stage {
+  perspective: 1200px;
+}
+
+.book-3d {
+  width: 210px;
+  height: 295px;
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(-22deg) rotateX(10deg);
+  transition: transform 0.4s ease;
+  box-shadow: 20px 20px 45px rgba(0, 0, 0, 0.85);
+  animation: floatBook 4.5s ease-in-out infinite alternate;
+}
+
+.book-3d:hover {
+  transform: rotateY(-5deg) rotateX(3deg) scale(1.04);
+}
+
+@keyframes floatBook {
+  0% {
+    transform: translateY(0) rotateY(-22deg) rotateX(10deg);
+  }
+  100% {
+    transform: translateY(-12px) rotateY(-14deg) rotateX(4deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .book-3d {
+    animation: none;
+    transform: rotateY(-12deg) rotateX(4deg);
+  }
+}
+
+/* Anti-Print Enforcement */
+@media print {
+  html,
+  body {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  body::before {
+    visibility: visible !important;
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    content: "CRITICAL NOTICE: PRINTING IS FORBIDDEN UNDER INTELLECTUAL PROPERTY ACT NO. 36 OF 2003.";
+    font-size: 20pt;
+    color: red;
+    font-weight: bold;
+    text-align: center;
+    background: #fff;
+  }
+}

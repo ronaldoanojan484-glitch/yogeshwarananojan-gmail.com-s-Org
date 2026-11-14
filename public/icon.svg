@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#261b0b"/>
+      <stop offset="60%" stop-color="#0f0c08"/>
+      <stop offset="100%" stop-color="#070605"/>
+    </radialGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff8db"/>
+      <stop offset="35%" stop-color="#f5ce75"/>
+      <stop offset="70%" stop-color="#c99738"/>
+      <stop offset="100%" stop-color="#7a5315"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)"/>
+  <circle cx="256" cy="256" r="205" fill="none" stroke="url(#goldGrad)" stroke-width="10"/>
+  <circle cx="256" cy="256" r="186" fill="none" stroke="#6e552d" stroke-width="2"/>
+  <path d="M126 232 L162 128 L222 184 L256 102 L290 184 L350 128 L386 232 L362 276 L150 276 Z" fill="url(#goldGrad)"/>
+  <circle cx="162" cy="116" r="12" fill="#fff8db"/>
+  <circle cx="256" cy="90" r="16" fill="#fff8db"/>
+  <circle cx="350" cy="116" r="12" fill="#fff8db"/>
+  <rect x="148" y="290" width="216" height="20" rx="10" fill="url(#goldGrad)"/>
+  <text x="256" y="388" font-family="Georgia, serif" font-weight="900" font-size="82" fill="url(#goldGrad)" text-anchor="middle" letter-spacing="8">AAC</text>
+  <text x="256" y="428" font-family="system-ui, sans-serif" font-weight="700" font-size="20" fill="#d4ad5d" text-anchor="middle" letter-spacing="5">PC MASTER KIT</text>
+</svg>
