@@ -2,8 +2,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AppSettings, OrderRecord } from '../types';
 
 export const SUPABASE_CONFIG = {
-  SUPABASE_URL: 'https://msxcnjgbnhqtnzvwewnn.supabase.co',
-  SUPABASE_ANON_KEY: 'sb_publishable_mpuyto7QEDaFeD75CUTOAg_EuvD3qrG',
+  SUPABASE_URL: 'https://ofziqjnsdlrablvxwqvv.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_BoqmPVQN-BxcCiaKFh4G2g_JOioL3U4',
   DEFAULTS: {
     price_lkr: 600,
     whatsapp: '94750274368',

@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --bg: #070605;
   --surface: #12100d;
   --surface-2: #1b1712;
@@ -37,6 +38,15 @@ select {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0a0907 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 .font-royal {
