@@ -9,10 +9,30 @@ export type PageView =
   | 'admin-login'
   | 'admin-dash';
 
-export type StoreTab = 'book' | 'word' | 'excel' | 'ppt';
-export type ReaderCategory = 'book' | 'word' | 'excel' | 'ppt';
+export type StoreTab = 'book' | 'library' | 'word' | 'excel' | 'ppt';
+export type ReaderCategory = 'book' | 'library' | 'word' | 'excel' | 'ppt';
 
 export type OrderStatus = 'Pending' | 'Approved' | 'Revoked';
+
+export type BookLockMode = 'paid' | 'full_lock' | 'free';
+export type MainBookLockMode = 'preview_5' | 'strict_lock' | 'free_all';
+
+export interface CustomBookPage {
+  title: string;
+  content: string;
+}
+
+export interface CustomBook {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  badge: string;
+  lockMode: BookLockMode;
+  previewPages: number;
+  pages: CustomBookPage[];
+  createdAt: string;
+}
 
 export interface BankDetails {
   bank: string;
@@ -29,6 +49,8 @@ export interface AppSettings {
   hero_tag: string;
   legal_notice: string;
   bank: BankDetails;
+  mainBookLock?: MainBookLockMode;
+  books?: CustomBook[];
 }
 
 export interface OrderRecord {

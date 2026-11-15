@@ -106,11 +106,13 @@ export default function App() {
     loadSavedCustomer()
   );
   const [previewMode, setPreviewMode] = useState(false);
+  const [adminPreviewMode, setAdminPreviewMode] = useState(false);
 
   // Reader navigation targets
   const [readerCategory, setReaderCategory] = useState<ReaderCategory>('book');
   const [readerTplIdx, setReaderTplIdx] = useState(0);
   const [readerStartPage, setReaderStartPage] = useState(1);
+  const [readerCustomBookId, setReaderCustomBookId] = useState<string | undefined>(undefined);
 
   // Store state
   const [storeTab, setStoreTab] = useState<StoreTab>('book');
@@ -207,7 +209,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Privacy Blur Shield when reader is active and window loses focus/visibility
+  // Privacy Blur Shield when reader is active and tab/app goes to background
   useEffect(() => {
     if (page !== 'reader-view') {
       setPrivacyShield(false);
@@ -216,16 +218,9 @@ export default function App() {
     const onVisChange = () => {
       if (document.hidden) setPrivacyShield(true);
     };
-    const onBlur = () => {
-      const activeTag = document.activeElement?.tagName;
-      if (activeTag === 'SELECT') return;
-      setPrivacyShield(true);
-    };
     document.addEventListener('visibilitychange', onVisChange);
-    window.addEventListener('blur', onBlur);
     return () => {
       document.removeEventListener('visibilitychange', onVisChange);
-      window.removeEventListener('blur', onBlur);
     };
   }, [page]);
 
@@ -328,15 +323,24 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pendingRow, authName, authPhone]);
 
+  const customBooks = settings.books || [];
+  const mainBookLock = settings.mainBookLock || 'preview_5';
+  const isCustomerApproved = activeCustomer?.status === 'Approved';
+  const isUnlocked = isCustomerApproved || mainBookLock === 'free_all';
+
   const gotoPage = (target: PageView) => {
-    if (target === 'reader-auth' && activeCustomer?.status === 'Approved') {
+    if (target !== 'reader-view') {
+      setAdminPreviewMode(false);
+    }
+    if (target === 'reader-auth' && isCustomerApproved) {
       setPreviewMode(false);
+      setAdminPreviewMode(false);
       setPage('reader-view');
       void verifyActiveCustomerLive();
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    if (target === 'reader-view' && !previewMode && activeCustomer?.status !== 'Approved') {
+    if (target === 'reader-view' && !previewMode && !adminPreviewMode && !isUnlocked) {
       showToast(
         `Reader Access Locked: Enter your registered Name & Mobile Number or order PC Master Kit 2026 (LKR ${settings.price_lkr}).`,
         'info'
@@ -351,7 +355,22 @@ export default function App() {
 
   const openAdminPortal = () => {
     setAdminAuthenticated(false);
+    setAdminPreviewMode(false);
     setPage('admin-login');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAdminPreviewBook = (customBookId?: string) => {
+    setAdminPreviewMode(true);
+    setPreviewMode(false);
+    if (customBookId) {
+      setReaderCategory('library');
+      setReaderCustomBookId(customBookId);
+    } else {
+      setReaderCategory('book');
+      setReaderStartPage(1);
+    }
+    setPage('reader-view');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -373,13 +392,38 @@ export default function App() {
   };
 
   const openPreview = () => {
-    if (activeCustomer?.status === 'Approved') {
-      setPreviewMode(false);
-    } else {
-      setPreviewMode(true);
+    setAdminPreviewMode(false);
+    if (mainBookLock === 'strict_lock' && !isCustomerApproved) {
+      showToast(
+        `Preview Locked: Order & activate PC Master Kit 2026 (LKR ${settings.price_lkr}) to read.`,
+        'info'
+      );
+      setPage('reader-auth');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
+    setPreviewMode(!isUnlocked);
     setReaderCategory('book');
     setReaderStartPage(1);
+    setPage('reader-view');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openCustomBookInReader = (bookId: string) => {
+    const targetBook = customBooks.find((b) => b.id === bookId);
+    if (!targetBook) return;
+    setAdminPreviewMode(false);
+    if (targetBook.lockMode === 'full_lock') {
+      showToast('This book is currently locked by the Administrator.', 'error');
+      return;
+    }
+    if (targetBook.lockMode === 'paid' && !isCustomerApproved && targetBook.previewPages <= 0) {
+      promptTemplateLock();
+      return;
+    }
+    setPreviewMode(!isCustomerApproved && targetBook.lockMode !== 'free');
+    setReaderCustomBookId(bookId);
+    setReaderCategory('library');
     setPage('reader-view');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -524,14 +568,13 @@ I have submitted my order details. Please verify my payment slip and approve my 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const isUnlocked = activeCustomer?.status === 'Approved';
-
   const openStoreTemplateInReader = (cat: 'word' | 'excel' | 'ppt', idx: number) => {
-    if (!isUnlocked && idx >= PREVIEW_TEMPLATE_LIMIT) {
+    if (!isUnlocked && (mainBookLock === 'strict_lock' || idx >= PREVIEW_TEMPLATE_LIMIT)) {
       promptTemplateLock();
       return;
     }
     setModalTemplate(null);
+    setAdminPreviewMode(false);
     setPreviewMode(!isUnlocked);
     setReaderCategory(cat);
     setReaderTplIdx(idx);
@@ -540,11 +583,13 @@ I have submitted my order details. Please verify my payment slip and approve my 
   };
 
   const quickOpenChapter = (pageNum: number) => {
-    if (!isUnlocked) {
+    const canPreviewThisPage = mainBookLock !== 'strict_lock' && pageNum <= 5;
+    if (!isUnlocked && !canPreviewThisPage) {
       promptTemplateLock();
       return;
     }
-    setPreviewMode(false);
+    setAdminPreviewMode(false);
+    setPreviewMode(!isUnlocked);
     setReaderCategory('book');
     setReaderStartPage(pageNum);
     setPage('reader-view');
@@ -720,6 +765,86 @@ I have submitted my order details. Please verify my payment slip and approve my 
               </div>
             </div>
 
+            {/* Newly Published Books Showcase (if Admin added any) */}
+            {customBooks.length > 0 && (
+              <div className="rounded-2xl border border-[#382c18] bg-[#12100d] p-5 shadow-lg space-y-3">
+                <div className="flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#d4ad5d]">
+                      NEW BOOKS LIBRARY
+                    </span>
+                    <h3 className="font-royal text-lg text-[#f7e4b2]">
+                      Latest Editions ({customBooks.length})
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStoreTab('library');
+                      gotoPage('store');
+                    }}
+                    className="text-xs font-bold text-[#d4ad5d] hover:underline cursor-pointer"
+                  >
+                    View All Books →
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {customBooks.slice(0, 3).map((b) => {
+                    const isFullLock = b.lockMode === 'full_lock';
+                    const canReadFull = b.lockMode === 'free' || (b.lockMode === 'paid' && isCustomerApproved);
+                    return (
+                      <div
+                        key={b.id}
+                        className="rounded-xl border border-[#382c18] bg-[#0c0a08] p-4 flex flex-col justify-between gap-3"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-[10px] font-bold text-[#d4ad5d] uppercase">
+                              {b.badge || 'BOOK'} • {b.pages.length} Pages
+                            </span>
+                            <span
+                              className={`text-[10px] font-extrabold ${
+                                isFullLock
+                                  ? 'text-[#f87171]'
+                                  : canReadFull
+                                    ? 'text-[#34d399]'
+                                    : 'text-[#f5d482]'
+                              }`}
+                            >
+                              {isFullLock ? '⛔ Locked' : canReadFull ? '✓ Unlocked' : '🔐 Paid Lock'}
+                            </span>
+                          </div>
+                          <h4 className="font-royal text-sm text-[#f7e4b2]">{b.title}</h4>
+                          <p className="text-xs text-[#a39886] mt-1">{b.description}</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => openCustomBookInReader(b.id)}
+                          className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+                            isFullLock
+                              ? 'border border-[#f87171]/50 text-[#f87171]'
+                              : canReadFull
+                                ? 'gold-gradient-bg text-[#171107]'
+                                : 'border border-[#d4ad5d]/60 text-[#f7e4b2]'
+                          }`}
+                        >
+                          {isFullLock
+                            ? '⛔ Locked by Admin'
+                            : canReadFull
+                              ? 'Read Book ▶'
+                              : b.previewPages > 0
+                                ? `Preview (${b.previewPages} Pages)`
+                                : `Unlock (LKR ${settings.price_lkr})`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Trust Contact Bar */}
             <div className="rounded-2xl border border-[#382c18] bg-[#12100d] p-4 sm:p-5 grid grid-cols-2 lg:grid-cols-4 gap-4 text-center shadow-lg">
               <div>
@@ -795,6 +920,9 @@ I have submitted my order details. Please verify my payment slip and approve my 
               {(
                 [
                   ['book', 'Book (122 Pages • 25 Sections)', BookOpen],
+                  ...(customBooks.length > 0
+                    ? ([['library', `New Books (${customBooks.length})`, BookOpen]] as const)
+                    : []),
                   ['word', 'Word Templates (20)', FileText],
                   ['excel', 'Excel Templates (20)', FileSpreadsheet],
                   ['ppt', 'PowerPoint Decks (19)', Presentation],
@@ -818,37 +946,98 @@ I have submitted my order details. Please verify my payment slip and approve my 
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 mt-3">
               {storeTab === 'book' &&
-                CHAPTERS.map((c) => (
-                  <div
-                    key={c.p}
-                    className="bg-[#0e0c09] border border-[#382c18] hover:border-[#d4ad5d] rounded-xl p-4 flex flex-col justify-between transition"
-                  >
-                    <div>
-                      <h4 className="text-sm text-[#f7e4b2] font-bold mb-1">
-                        Page {c.p}: {c.title}
-                      </h4>
-                      <p className="text-xs text-[#a39886]">Complete 122-Page Card System</p>
+                CHAPTERS.map((c) => {
+                  const canPreviewChapter = mainBookLock !== 'strict_lock' && c.p <= 5;
+                  return (
+                    <div
+                      key={c.p}
+                      className="bg-[#0e0c09] border border-[#382c18] hover:border-[#d4ad5d] rounded-xl p-4 flex flex-col justify-between transition"
+                    >
+                      <div>
+                        <h4 className="text-sm text-[#f7e4b2] font-bold mb-1">
+                          Page {c.p}: {c.title}
+                        </h4>
+                        <p className="text-xs text-[#a39886]">Complete 122-Page Card System</p>
+                      </div>
+                      <div className="mt-3 flex justify-between items-center gap-2">
+                        <span
+                          className={`text-[10px] font-bold ${
+                            isUnlocked
+                              ? 'text-[#34d399]'
+                              : canPreviewChapter
+                                ? 'text-[#f7e4b2]'
+                                : 'text-[#d4ad5d]'
+                          }`}
+                        >
+                          {isUnlocked
+                            ? '✓ Unlocked'
+                            : canPreviewChapter
+                              ? 'Free Sample Page'
+                              : `Included in LKR ${settings.price_lkr} Pack`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => quickOpenChapter(c.p)}
+                          className="px-3 py-1.5 rounded-lg border border-[#6e552d] text-[#f7e4b2] text-[11px] font-semibold hover:bg-[#261d0f] cursor-pointer"
+                        >
+                          {isUnlocked ? 'Read Page ▶' : canPreviewChapter ? 'Preview ▶' : '🔒 Locked'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="mt-3 flex justify-between items-center gap-2">
-                      <span
-                        className={`text-[10px] font-bold ${
-                          isUnlocked ? 'text-[#34d399]' : 'text-[#d4ad5d]'
-                        }`}
-                      >
-                        {isUnlocked ? '✓ Unlocked' : `Included in LKR ${settings.price_lkr} Pack`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => quickOpenChapter(c.p)}
-                        className="px-3 py-1.5 rounded-lg border border-[#6e552d] text-[#f7e4b2] text-[11px] font-semibold hover:bg-[#261d0f] cursor-pointer"
-                      >
-                        {isUnlocked ? 'Read Page ▶' : 'Locked'}
-                      </button>
+                  );
+                })}
+
+              {storeTab === 'library' &&
+                customBooks.map((b) => {
+                  const isFullLock = b.lockMode === 'full_lock';
+                  const canReadFull = b.lockMode === 'free' || (b.lockMode === 'paid' && isCustomerApproved);
+                  return (
+                    <div
+                      key={b.id}
+                      className="bg-[#0e0c09] border border-[#382c18] hover:border-[#d4ad5d] rounded-xl p-4 flex flex-col justify-between transition"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-[10px] font-bold text-[#d4ad5d] uppercase">
+                            {b.badge || 'BOOK'} • {b.pages.length} Pages
+                          </span>
+                          <span
+                            className={`text-[10px] font-extrabold ${
+                              isFullLock
+                                ? 'text-[#f87171]'
+                                : canReadFull
+                                  ? 'text-[#34d399]'
+                                  : 'text-[#f5d482]'
+                            }`}
+                          >
+                            {isFullLock ? '⛔ Locked' : canReadFull ? '✓ Unlocked' : '🔐 Paid Lock'}
+                          </span>
+                        </div>
+                        <h4 className="text-sm text-[#f7e4b2] font-bold mb-1">{b.title}</h4>
+                        <p className="text-xs text-[#a39886]">{b.description}</p>
+                      </div>
+                      <div className="mt-3 flex justify-between items-center gap-2">
+                        <span className="text-[10px] text-[#a39886]">{b.subtitle}</span>
+                        <button
+                          type="button"
+                          onClick={() => openCustomBookInReader(b.id)}
+                          className="px-3 py-1.5 rounded-lg gold-gradient-bg text-[#171107] text-[11px] font-bold cursor-pointer"
+                        >
+                          {isFullLock
+                            ? '⛔ Locked'
+                            : canReadFull
+                              ? 'Read Book ▶'
+                              : b.previewPages > 0
+                                ? `Preview (${b.previewPages}p)`
+                                : '🔒 Locked'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
               {storeTab !== 'book' &&
+                storeTab !== 'library' &&
                 (storeTab === 'word'
                   ? WORD_TEMPLATES
                   : storeTab === 'excel'
@@ -881,7 +1070,7 @@ I have submitted my order details. Please verify my payment slip and approve my 
                             Open in Reader ▶
                           </button>
                         </>
-                      ) : idx < PREVIEW_TEMPLATE_LIMIT ? (
+                      ) : mainBookLock !== 'strict_lock' && idx < PREVIEW_TEMPLATE_LIMIT ? (
                         <>
                           <button
                             type="button"
@@ -1165,11 +1354,16 @@ I have submitted my order details. Please verify my payment slip and approve my 
             <ReaderView
               activeCustomer={activeCustomer}
               previewMode={previewMode}
+              adminPreviewMode={adminPreviewMode}
               settings={settings}
               initialCategory={readerCategory}
               initialTemplateIdx={readerTplIdx}
               initialPage={readerStartPage}
-              onExit={() => gotoPage('home')}
+              initialCustomBookId={readerCustomBookId}
+              onExit={() => {
+                setAdminPreviewMode(false);
+                gotoPage(adminAuthenticated ? 'admin-dash' : 'home');
+              }}
               onGoOrder={() => gotoPage('order')}
               onGoAuth={() => gotoPage('reader-auth')}
               onLockedPrompt={promptTemplateLock}
@@ -1188,8 +1382,10 @@ I have submitted my order details. Please verify my payment slip and approve my 
               setPage(authed ? 'admin-dash' : 'admin-login');
             }}
             onSettingsUpdated={(next) => setSettings(next)}
+            onPreviewAsAdmin={handleAdminPreviewBook}
             onExit={() => {
               setAdminAuthenticated(false);
+              setAdminPreviewMode(false);
               gotoPage('home');
             }}
             onToast={showToast}

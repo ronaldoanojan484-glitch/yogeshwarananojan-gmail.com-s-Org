@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Lock } from 'lucide-react';
 import {
   CHAPTERS,
   EXCEL_TEMPLATES,
@@ -6,16 +7,18 @@ import {
   WORD_TEMPLATES,
   buildAll59TemplatesString,
 } from '../data/bookData';
-import type { AppSettings, CustomerSession, ReaderCategory } from '../types';
+import type { AppSettings, CustomBook, CustomerSession, ReaderCategory } from '../types';
 import { BookPageCard } from './BookPageCard';
 
 interface ReaderViewProps {
   activeCustomer: CustomerSession | null;
   previewMode: boolean;
+  adminPreviewMode?: boolean;
   settings: AppSettings;
   initialCategory?: ReaderCategory;
   initialTemplateIdx?: number;
   initialPage?: number;
+  initialCustomBookId?: string;
   onExit: () => void;
   onGoOrder: () => void;
   onGoAuth: () => void;
@@ -29,30 +32,53 @@ const PREVIEW_TEMPLATE_LIMIT = 2;
 export const ReaderView: React.FC<ReaderViewProps> = ({
   activeCustomer,
   previewMode,
+  adminPreviewMode = false,
   settings,
   initialCategory = 'book',
   initialTemplateIdx = 0,
   initialPage = 1,
+  initialCustomBookId,
   onExit,
   onGoOrder,
   onGoAuth,
   onLockedPrompt,
   onToast,
 }) => {
-  const isBookActive = !previewMode && activeCustomer?.status === 'Approved';
-  const maxPage = isBookActive ? 122 : 5;
+  const customBooks: CustomBook[] = settings.books || [];
+  const mainBookLock = settings.mainBookLock || 'preview_5';
+  const isApprovedCustomer = activeCustomer?.status === 'Approved';
+
+  const isBookActive =
+    adminPreviewMode ||
+    mainBookLock === 'free_all' ||
+    (!previewMode && isApprovedCustomer);
+
+  const maxPage = isBookActive ? 122 : mainBookLock === 'strict_lock' ? 0 : 5;
 
   const [category, setCategory] = useState<ReaderCategory>(initialCategory);
-  const [currentPage, setCurrentPage] = useState<number>(Math.min(initialPage, maxPage));
+  const [currentPage, setCurrentPage] = useState<number>(
+    maxPage > 0 ? Math.min(initialPage, maxPage) : 1
+  );
   const [renderedUpTo, setRenderedUpTo] = useState<number>(
-    Math.min(maxPage, Math.max(BOOK_BATCH_SIZE, initialPage + 5))
+    maxPage > 0 ? Math.min(maxPage, Math.max(BOOK_BATCH_SIZE, initialPage + 5)) : 0
   );
   const [selectedTplIdx, setSelectedTplIdx] = useState<number>(initialTemplateIdx);
+  const [selectedBookId, setSelectedBookId] = useState<string>(
+    initialCustomBookId || customBooks[0]?.id || ''
+  );
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setCategory(initialCategory);
   }, [initialCategory]);
+
+  useEffect(() => {
+    if (initialCustomBookId) {
+      setSelectedBookId(initialCustomBookId);
+    } else if (!selectedBookId && customBooks.length > 0) {
+      setSelectedBookId(customBooks[0].id);
+    }
+  }, [initialCustomBookId, customBooks, selectedBookId]);
 
   useEffect(() => {
     const safeIdx =
@@ -61,6 +87,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   }, [initialTemplateIdx, isBookActive]);
 
   useEffect(() => {
+    if (maxPage <= 0) {
+      setCurrentPage(1);
+      setRenderedUpTo(0);
+      return;
+    }
     const safePage = Math.max(1, Math.min(maxPage, initialPage));
     setCurrentPage(safePage);
     setRenderedUpTo(Math.min(maxPage, Math.max(isBookActive ? BOOK_BATCH_SIZE : 5, safePage + 5)));
@@ -113,13 +144,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
     return () => obs.disconnect();
   }, [category, renderedUpTo]);
 
-  const watermarkLines: [string, string, string] = isBookActive && activeCustomer
-    ? [
-        `${activeCustomer.name.toUpperCase()} • ${activeCustomer.phone}`,
-        activeCustomer.paymentRef,
-        'BOOK ACTIVE • LICENSED COPY',
-      ]
-    : ['5-PAGE FREE PREVIEW', 'PC MASTER KIT 2026', 'ACTIVATE FULL 122 PAGES'];
+  const watermarkLines: [string, string, string] = adminPreviewMode
+    ? ['ADMIN PREVIEW MODE', settings.title, settings.license]
+    : isApprovedCustomer && activeCustomer
+      ? [
+          `${activeCustomer.name.toUpperCase()} • ${activeCustomer.phone}`,
+          activeCustomer.paymentRef,
+          'BOOK ACTIVE • LICENSED COPY',
+        ]
+      : ['5-PAGE FREE PREVIEW', 'PC MASTER KIT 2026', 'ACTIVATE FULL 122 PAGES'];
 
   const handleCategorySwitch = (cat: ReaderCategory) => {
     setCategory(cat);
@@ -127,7 +160,11 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   };
 
   const jumpToPage = (target: number) => {
-    if (!isBookActive && target > 5) {
+    if (maxPage <= 0) {
+      onLockedPrompt();
+      return;
+    }
+    if (!isBookActive && target > maxPage) {
       onLockedPrompt();
       return;
     }
@@ -193,6 +230,23 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
   const currentChapterValue =
     CHAPTERS.filter((c) => c.p <= currentPage).slice(-1)[0]?.p ?? 1;
 
+  const selectedCustomBook =
+    customBooks.find((b) => b.id === selectedBookId) || customBooks[0] || null;
+
+  const canReadSelectedCustomBookFull = selectedCustomBook
+    ? adminPreviewMode ||
+      selectedCustomBook.lockMode === 'free' ||
+      (selectedCustomBook.lockMode === 'paid' && isApprovedCustomer)
+    : false;
+
+  const customBookMaxPages = selectedCustomBook
+    ? selectedCustomBook.lockMode === 'full_lock' && !adminPreviewMode
+      ? 0
+      : canReadSelectedCustomBookFull
+        ? selectedCustomBook.pages.length
+        : Math.min(selectedCustomBook.pages.length, selectedCustomBook.previewPages)
+    : 0;
+
   return (
     <section className="max-w-[960px] mx-auto">
       {/* Reader Top Session Header */}
@@ -206,9 +260,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         </button>
 
         <div className="text-xs font-bold text-[#f7e4b2]">
-          {isBookActive && activeCustomer
-            ? `BOOK ACTIVE · ${activeCustomer.name} · Ref: ${activeCustomer.paymentRef}`
-            : 'FREE PREVIEW MODE (Pages 1–5 • 2 Sample Templates / Category)'}
+          {adminPreviewMode
+            ? 'ADMIN FULL PREVIEW MODE · ALL BOOKS & TEMPLATES UNLOCKED'
+            : isApprovedCustomer && activeCustomer
+              ? `BOOK ACTIVE · ${activeCustomer.name} · Ref: ${activeCustomer.paymentRef}`
+              : mainBookLock === 'free_all'
+                ? 'OPEN ACCESS MODE (ALL 122 PAGES UNLOCKED)'
+                : mainBookLock === 'strict_lock'
+                  ? 'LOCKED MODE (ACTIVATION REQUIRED)'
+                  : 'FREE PREVIEW MODE (Pages 1–5 • 2 Sample Templates / Category)'}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -219,7 +279,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 onLockedPrompt();
                 return;
               }
-              if (category === 'book') {
+              if (category === 'book' || category === 'library') {
                 onToast(
                   'Book pages are protected with forensic watermark. Use Word, Excel, or PowerPoint tabs to copy templates.',
                   'info'
@@ -254,7 +314,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               }
               downloadTxt('AAC_Royal_59_Templates_Pack_2026.txt', buildAll59TemplatesString());
             }}
-            className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#d4ad5d] text-[#f7e4b2] text-xs font-semibold hover:bg-[#261d0f] cursor-pointer"
+            className="min-h-[38px] px-3.5 py-1.5 rounded-xl border border-[#d4ad5d] text-[#f7e4b2] text-xs font-semibold hover:bg-[#261d0f] cursor-pointer"
           >
             Download Pack (.txt)
           </button>
@@ -266,6 +326,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         {(
           [
             ['book', 'Book (Vertical Reader)'],
+            ...(customBooks.length > 0 ? [['library', `New Books (${customBooks.length})`]] : []),
             ['word', 'Word (20 Templates)'],
             ['excel', 'Excel (20 Templates)'],
             ['ppt', 'PowerPoint (19 Decks)'],
@@ -287,7 +348,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
       </div>
 
       {/* Book Controls */}
-      {category === 'book' && (
+      {category === 'book' && maxPage > 0 && (
         <div className="sticky top-[68px] z-40 mb-4 bg-[#141009] border border-[#382c18] rounded-xl px-3.5 py-2.5 flex flex-wrap justify-between items-center gap-2.5 shadow-[0_8px_25px_rgba(0,0,0,0.85)]">
           <div className="flex items-center gap-1.5">
             <button
@@ -307,7 +368,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               className="w-14 bg-black border border-[#382c18] text-white text-center py-1 rounded-md font-bold text-xs tabular-nums"
             />
             <span className="text-xs text-[#a39886]">
-              {isBookActive ? 'of 122' : 'of 5 (Preview)'}
+              {isBookActive ? 'of 122' : `of ${maxPage} (Preview)`}
             </span>
             <button
               type="button"
@@ -341,51 +402,18 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
         </div>
       )}
 
-      {/* Vertical Continuous Book Feed */}
+      {/* Vertical Continuous Main Book Feed */}
       {category === 'book' && (
         <div className="flex flex-col items-center gap-6 w-full max-w-[540px] mx-auto mt-3 mb-10 pb-10">
-          {/* Status Banner */}
-          <div
-            className={`w-full px-4 py-3.5 rounded-xl text-center text-xs border ${
-              isBookActive && activeCustomer
-                ? 'bg-gradient-to-br from-[#064e3b] to-[#022c22] border-[#34d399] text-[#d1fae5]'
-                : 'bg-gradient-to-br from-[#271d0c] to-[#120e07] border-[#d4ad5d] text-[#f7e4b2]'
-            }`}
-          >
-            {isBookActive && activeCustomer ? (
-              <>
-                <b>BOOK ACTIVE:</b> Full 122-Page Book &amp; 59 Templates Unlocked for{' '}
-                <b>{activeCustomer.name}</b>
-              </>
-            ) : (
-              <>
-                <b>BOOK SAMPLE PREVIEW (Pages 1–5):</b> Scroll down to view all 5 sample pages in
-                mobile card layout.
-              </>
-            )}
-          </div>
-
-          {Array.from({ length: Math.min(renderedUpTo, maxPage) }, (_, idx) => idx + 1).map((pg) => (
-            <BookPageCard key={pg} pageNumber={pg} watermarkLines={watermarkLines} />
-          ))}
-
-          {isBookActive && renderedUpTo < maxPage && (
-            <div ref={sentinelRef} className="h-6 w-full text-center text-xs text-[#a39886]">
-              Loading next pages...
-            </div>
-          )}
-
-          {!isBookActive && (
+          {maxPage === 0 ? (
             <div className="w-full rounded-2xl border-2 border-[#d4ad5d] bg-[#12100d] p-6 text-center shadow-2xl">
-              <span className="inline-block gold-gradient-bg text-[#120e07] font-black text-[11px] px-3 py-1 rounded-full uppercase tracking-wider mb-2">
-                Preview Completed (5 / 122 Pages)
-              </span>
-              <h3 className="font-royal text-xl text-[#f7e4b2] my-2">
-                Activate Full Book &amp; 59 Templates
+              <Lock className="w-8 h-8 text-[#d4ad5d] mx-auto mb-2" />
+              <h3 className="font-royal text-xl text-[#f7e4b2] mb-2">
+                Book Locked by Publisher
               </h3>
               <p className="text-xs text-[#a39886] mb-4 leading-relaxed">
-                Pages 6 to 122 (300 Shortcuts, 57 Excel Functions, 111 Commands, AI Prompts,
-                Projects 1–6 &amp; 15 Exam Q&amp;A + 59 Templates) unlock immediately once approved.
+                Preview is currently locked. Order and activate your copy (LKR {settings.price_lkr})
+                to unlock all 122 pages and 59 templates.
               </p>
               <div className="flex flex-wrap gap-2.5 justify-center">
                 <button
@@ -404,12 +432,222 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
                 </button>
               </div>
             </div>
+          ) : (
+            <>
+              <div
+                className={`w-full px-4 py-3.5 rounded-xl text-center text-xs border ${
+                  isBookActive
+                    ? 'bg-gradient-to-br from-[#064e3b] to-[#022c22] border-[#34d399] text-[#d1fae5]'
+                    : 'bg-gradient-to-br from-[#271d0c] to-[#120e07] border-[#d4ad5d] text-[#f7e4b2]'
+                }`}
+              >
+                {adminPreviewMode ? (
+                  <>
+                    <b>ADMIN PREVIEW:</b> Full 122-Page Book &amp; 59 Templates Unlocked for Review
+                  </>
+                ) : isApprovedCustomer && activeCustomer ? (
+                  <>
+                    <b>BOOK ACTIVE:</b> Full 122-Page Book &amp; 59 Templates Unlocked for{' '}
+                    <b>{activeCustomer.name}</b>
+                  </>
+                ) : mainBookLock === 'free_all' ? (
+                  <>
+                    <b>FREE OPEN ACCESS:</b> All 122 Pages currently unlocked by publisher.
+                  </>
+                ) : (
+                  <>
+                    <b>BOOK SAMPLE PREVIEW (Pages 1–5):</b> Scroll down to view all 5 sample pages
+                    in mobile card layout.
+                  </>
+                )}
+              </div>
+
+              {Array.from({ length: Math.min(renderedUpTo, maxPage) }, (_, idx) => idx + 1).map(
+                (pg) => (
+                  <BookPageCard key={pg} pageNumber={pg} watermarkLines={watermarkLines} />
+                )
+              )}
+
+              {isBookActive && renderedUpTo < maxPage && (
+                <div ref={sentinelRef} className="h-6 w-full text-center text-xs text-[#a39886]">
+                  Loading next pages...
+                </div>
+              )}
+
+              {!isBookActive && (
+                <div className="w-full rounded-2xl border-2 border-[#d4ad5d] bg-[#12100d] p-6 text-center shadow-2xl">
+                  <span className="inline-block gold-gradient-bg text-[#120e07] font-black text-[11px] px-3 py-1 rounded-full uppercase tracking-wider mb-2">
+                    Preview Completed (5 / 122 Pages)
+                  </span>
+                  <h3 className="font-royal text-xl text-[#f7e4b2] my-2">
+                    Activate Full Book &amp; 59 Templates
+                  </h3>
+                  <p className="text-xs text-[#a39886] mb-4 leading-relaxed">
+                    Pages 6 to 122 (300 Shortcuts, 57 Excel Functions, 111 Commands, AI Prompts,
+                    Projects 1–6 &amp; 15 Exam Q&amp;A + 59 Templates) unlock immediately once
+                    approved.
+                  </p>
+                  <div className="flex flex-wrap gap-2.5 justify-center">
+                    <button
+                      type="button"
+                      onClick={onGoOrder}
+                      className="min-h-[44px] px-5 py-2.5 rounded-xl gold-gradient-bg text-[#171107] font-extrabold text-xs cursor-pointer"
+                    >
+                      Order Now (LKR {settings.price_lkr})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onGoAuth}
+                      className="min-h-[44px] px-5 py-2.5 rounded-xl border border-[#34d399] text-[#34d399] font-bold text-xs hover:bg-[#0f3d23]/40 cursor-pointer"
+                    >
+                      Already Paid? Activate Book
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Custom Added Books Vertical Reader */}
+      {category === 'library' && (
+        <div className="space-y-4 max-w-[560px] mx-auto mb-10 pb-10">
+          {customBooks.length === 0 ? (
+            <div className="rounded-2xl border border-[#382c18] bg-[#12100d] p-6 text-center text-xs text-[#a39886]">
+              No additional books published yet.
+            </div>
+          ) : (
+            <>
+              <select
+                value={selectedCustomBook?.id || ''}
+                onChange={(e) => setSelectedBookId(e.target.value)}
+                className="w-full bg-[#120f0a] border border-[#382c18] text-[#f7e4b2] px-3.5 py-2.5 rounded-xl text-sm font-bold"
+              >
+                {customBooks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.lockMode === 'full_lock'
+                      ? `⛔ ${b.title} (Locked by Admin)`
+                      : b.lockMode === 'paid' && !isApprovedCustomer && !adminPreviewMode
+                        ? `🔒 ${b.title} (${b.pages.length} Pages)`
+                        : `📖 ${b.title} (${b.pages.length} Pages)`}
+                  </option>
+                ))}
+              </select>
+
+              {selectedCustomBook && (
+                <>
+                  {selectedCustomBook.lockMode === 'full_lock' && !adminPreviewMode ? (
+                    <div className="rounded-2xl border-2 border-[#f87171]/60 bg-[#12100d] p-6 text-center shadow-2xl">
+                      <Lock className="w-8 h-8 text-[#f87171] mx-auto mb-2" />
+                      <h3 className="font-royal text-lg text-[#f7e4b2] mb-1">
+                        {selectedCustomBook.title}
+                      </h3>
+                      <p className="text-xs text-[#fecaca]">
+                        This book is currently locked by the Administrator. Please check back later
+                        or contact support.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div
+                        className={`w-full px-4 py-3 rounded-xl text-center text-xs border ${
+                          canReadSelectedCustomBookFull
+                            ? 'bg-gradient-to-br from-[#064e3b] to-[#022c22] border-[#34d399] text-[#d1fae5]'
+                            : 'bg-gradient-to-br from-[#271d0c] to-[#120e07] border-[#d4ad5d] text-[#f7e4b2]'
+                        }`}
+                      >
+                        <b>{selectedCustomBook.title}:</b>{' '}
+                        {canReadSelectedCustomBookFull
+                          ? `All ${selectedCustomBook.pages.length} pages unlocked.`
+                          : customBookMaxPages > 0
+                            ? `Showing ${customBookMaxPages} free preview page(s) of ${selectedCustomBook.pages.length}.`
+                            : `Book locked — Order & activate (LKR ${settings.price_lkr}) to read all ${selectedCustomBook.pages.length} pages.`}
+                      </div>
+
+                      {selectedCustomBook.pages
+                        .slice(0, customBookMaxPages)
+                        .map((pg, idx) => (
+                          <div
+                            key={`${selectedCustomBook.id}-${idx}`}
+                            className="relative w-full min-h-[420px] bg-white text-[#111827] rounded-xl border border-[#e5d5b5] shadow-[0_20px_50px_rgba(0,0,0,0.8)] overflow-hidden p-5 sm:p-6 flex flex-col justify-between"
+                          >
+                            {/* Watermark */}
+                            <div
+                              aria-hidden="true"
+                              className="pointer-events-none absolute inset-0 overflow-hidden flex flex-col justify-evenly items-center opacity-[0.14] -rotate-[24deg] select-none z-10"
+                            >
+                              {Array.from({ length: 5 }).map((_, wIdx) => (
+                                <div
+                                  key={wIdx}
+                                  className="text-center font-bold text-[10px] tracking-[2px] text-[#78350f] whitespace-nowrap"
+                                >
+                                  {watermarkLines.join(' • ')}
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="relative z-20 space-y-3">
+                              <div className="flex items-center justify-between border-b-2 border-[#d4ad5d] pb-1.5">
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#b45309]">
+                                  {selectedCustomBook.badge || selectedCustomBook.title}
+                                </span>
+                                <span className="text-[11px] font-mono-code font-bold text-[#64748b]">
+                                  Page {idx + 1} / {selectedCustomBook.pages.length}
+                                </span>
+                              </div>
+                              <h3 className="text-lg font-bold text-[#0f172a]">{pg.title}</h3>
+                              <div className="text-[13.5px] leading-relaxed text-[#1e293b] whitespace-pre-wrap">
+                                {pg.content}
+                              </div>
+                            </div>
+
+                            <div className="relative z-20 mt-6 pt-2 border-t border-[#e2e8f0] flex justify-between items-center text-[10px] text-[#64748b]">
+                              <span>{settings.title}</span>
+                              <span>{settings.license}</span>
+                            </div>
+                          </div>
+                        ))}
+
+                      {!canReadSelectedCustomBookFull && (
+                        <div className="w-full rounded-2xl border-2 border-[#d4ad5d] bg-[#12100d] p-6 text-center shadow-2xl">
+                          <Lock className="w-7 h-7 text-[#d4ad5d] mx-auto mb-2" />
+                          <h3 className="font-royal text-lg text-[#f7e4b2] mb-1">
+                            Unlock All {selectedCustomBook.pages.length} Pages
+                          </h3>
+                          <p className="text-xs text-[#a39886] mb-4">
+                            Order &amp; activate PC Master Kit Bundle (LKR {settings.price_lkr}) to
+                            unlock this entire book and all resources.
+                          </p>
+                          <div className="flex flex-wrap gap-2.5 justify-center">
+                            <button
+                              type="button"
+                              onClick={onGoOrder}
+                              className="min-h-[42px] px-5 py-2 rounded-xl gold-gradient-bg text-[#171107] font-extrabold text-xs cursor-pointer"
+                            >
+                              Order Now (LKR {settings.price_lkr})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onGoAuth}
+                              className="min-h-[42px] px-5 py-2 rounded-xl border border-[#34d399] text-[#34d399] font-bold text-xs cursor-pointer"
+                            >
+                              Activate Book
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
       )}
 
       {/* Template Viewer */}
-      {category !== 'book' && activeTemplate && (
+      {category !== 'book' && category !== 'library' && activeTemplate && (
         <div className="space-y-3 mb-6">
           {!isBookActive && (
             <div className="w-full px-4 py-3 rounded-xl text-center text-xs border bg-gradient-to-br from-[#271d0c] to-[#120e07] border-[#d4ad5d] text-[#f7e4b2]">
@@ -435,7 +673,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
               const lockedTpl = !isBookActive && idx >= PREVIEW_TEMPLATE_LIMIT;
               return (
                 <option key={it.id} value={idx}>
-                  {lockedTpl ? `🔒 ${it.title} (Locked)` : `${it.title}${!isBookActive ? ' (Free Preview)' : ''}`}
+                  {lockedTpl
+                    ? `🔒 ${it.title} (Locked)`
+                    : `${it.title}${!isBookActive ? ' (Free Preview)' : ''}`}
                 </option>
               );
             })}
@@ -504,7 +744,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({
 
       {/* Forensic Legal Notice Footer */}
       <div className="bg-[#17130b] border border-[#382c18] rounded-xl p-4 text-xs text-[#ded4bf] leading-relaxed">
-        {isBookActive && activeCustomer ? (
+        {isApprovedCustomer && activeCustomer ? (
           <>
             <b className="text-[#f7e4b2]">ANTI-COPY LICENSE NOTICE:</b>
             <br />
